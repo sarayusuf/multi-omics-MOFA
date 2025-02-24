@@ -1,0 +1,532 @@
+---
+title: "preprocessing omics on lung cancer"
+author: "sara yusuf"
+date: "2024-03-01"
+output: html_document
+---
+
+    Dataset Description
+
+ multiomics data analysis WITH MOFA  using Lung squamous cell carcinoma dataset.
+ 21792 genes 11111 protien and 16478 Calculated beta values mapped to genome from 108 samples with a confirmed diagnosis with LSCC and 94 healthy individuals.
+ THREE types of data were used : protiens , genes , and mythelation data
+
+    dataset source
+
+"https://linkedomics.org/data_download/CPTAC-LSCC/"
+
+    Citation
+Suhas V Vasaikar, Peter Straub, Jing Wang, Bing Zhang, LinkedOmics: analyzing multi-omics data within and across 32 cancer types, Nucleic Acids Research, Volume 46, Issue D1, 4 January 2018, Pages D956–D963.https://doi.org/10.1093/nar/gkx1090
+
+```{r}
+
+library(magrittr)
+library(ggplot2)
+library(ggrepel)
+library(tidyverse)
+library(vegan)
+library(devtools)
+library(data.table)
+library(impute)
+```
+
+
+```{r}
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+#    install.packages("BiocManager")
+
+#BiocManager::install("MOFA2")
+library(MOFA2)
+```
+
+
+```{r}
+transciptome.tumor  = read.csv("COMP_BIO/moda/HS_CPTAC_LSCC_2020_rnaseq_uq_fpkm_log2_NArm_TUMOR.cct", row.names = 1 ,
+sep ="\t")
+transciptome.normal = read.csv("COMP_BIO/moda/HS_CPTAC_LSCC_2020_methylation_mean_gene_tumor.cct", row.names = 1 ,
+sep ="\t")
+
+```
+
+
+```{r}
+proteome.tumor  = read.csv("COMP_BIO/moda/proteomics/lung cancer proteome tumor.cct", row.names = 1 ,
+sep ="\t")
+proteome.normal = read.csv("COMP_BIO/moda/proteomics/lung cancer proteome normal.cct", row.names = 1 ,
+sep ="\t") 
+```
+
+
+```{r}
+methylation.tumor  = read.csv("COMP_BIO/moda/HS_CPTAC_LSCC_2020_methylation_mean_gene_tumor.cct", row.names = 1 ,
+sep ="\t")
+methylation.normal = read.csv("COMP_BIO/moda/HS_CPTAC_LSCC_2020_methylation_mean_gene_normal.cct", row.names = 1 ,
+sep ="\t")
+```
+
+
+
+```{r}
+colnames(transciptome.normal)= paste0("sampleN",1: length(transciptome.normal))
+colnames(transciptome.tumor) = paste0("sampleT" ,1: length(transciptome.tumor))
+colnames(proteome.normal)    = paste0("sampleN" ,1: length(proteome.normal))
+colnames(proteome.tumor)     = paste0("sampleT" ,1: length(proteome.tumor))
+colnames(methylation.normal) = paste0("sampleN" ,1: length(methylation.normal))
+colnames(methylation.tumor)  = paste0("sampleT" ,1: length(methylation.tumor))
+```
+
+
+```{r}
+clinical.n = read.csv("COMP_BIO/moda/proteomics/lung cancer clinical normal.tsi" ,row.names = 1 ,
+sep ="\t" )
+clinical.t= read.csv("COMP_BIO/moda/proteomics/lung cancer clinical tumor" ,row.names = 1 ,
+sep ="\t")
+
+clinical.t = clinical.t[ -1 , -2]
+clinical.n = clinical.n[ -1 ,   ]
+
+```
+
+
+```{r}
+rownames(clinical.n)= paste0("sampleN",1: dim(clinical.n)[1])
+rownames(clinical.t) = paste0("sampleT" ,1: dim(clinical.t)[1])
+```
+
+
+```{r}
+all(rownames(transciptome.normal) %in% rownames(transciptome.tumor))
+```
+
+
+```{r}
+transciptome.tumor  = transciptome.tumor %>% data.frame %>% rownames_to_column("id")
+transciptome.normal = transciptome.normal%>% data.frame %>% rownames_to_column("id")
+proteome.normal     = proteome.normal    %>% data.frame %>% rownames_to_column("id")
+proteome.tumor      = proteome.tumor     %>% data.frame %>% rownames_to_column("id")
+methylation.normal  = methylation.normal %>% data.frame %>% rownames_to_column("id")
+methylation.tumor   = methylation.tumor  %>% data.frame %>% rownames_to_column("id")
+
+```
+
+
+```{r}
+transcriptome = transciptome.normal%>%
+  inner_join( . , transciptome.tumor , by = "id")
+```
+
+
+```{r}
+proteome = proteome.normal%>%
+  inner_join( . , proteome.tumor , by = "id")
+```
+
+
+```{r}
+methylation = methylation.normal %>%
+  inner_join( . , methylation.tumor , by = "id")
+```
+
+
+```{r}
+dim(transcriptome)
+sum(is.na(transcriptome))
+```
+```{r}
+trans.t = setNames(data.frame(t(transcriptome[,-1])), transcriptome[,1])
+```
+
+
+```{r}
+var = apply( trans.t , 2 ,var , na.rm = T )
+trans.var = trans.t[, !(var == 0 | is.na(var))]
+trans.var = as.matrix(trans.var)
+```
+
+```{r}
+h=hist((apply(is.na(trans.var), 2, sum)/nrow(trans.var) ) *100,breaks=10,
+main="QC",
+xlab="percentage of missingness")
+text(h$mids,h$counts,labels=h$counts, adj=c(0.5, -0.5))
+abline(v = 70)
+```
+
+
+```{r}
+keep = apply(is.na(trans.var), 2, sum)/nrow(trans.var) <0.7
+
+```
+
+
+```{r}
+
+
+trans.filt=trans.var[,keep]
+dim(trans.var)
+dim(trans.filt)
+trans.imputed = impute.knn(trans.filt,k=10)$data
+dim(trans.imputed)
+
+sum(is.na(trans.imputed))
+trans.logged = log2(trans.imputed + 1)
+trans.scaled = scale(trans.logged, scale = T)
+```
+
+
+
+
+```{r}
+par(mfrow=c(1,3))
+plot(density(apply(trans.imputed, 2, mean, na.rm = TRUE)),main='befor log2')
+plot(density(apply(trans.logged, 2, mean, na.rm = TRUE)),main='after log2')
+plot(density(apply(trans.scaled, 2, mean, na.rm = TRUE)),main='after  scaling')
+```
+
+
+```{r}
+par(mar = c(8,5,2,2),mfrow=c(1,3))
+boxplot(t(trans.imputed[1:20,]), main="Before log2" ,horizontal=T,las=2,col = "blue")
+boxplot(t(trans.logged[1:20,]), main="After log2" ,horizontal=T,las=2,col = "blue")
+boxplot(t(trans.scaled[1:20,]), main="After scaling " ,horizontal=T,las=2,col = "orange")
+
+```
+
+```{r}
+
+proteome.t = setNames(data.frame(t(proteome[,-1])), proteome[,1])
+```
+
+
+```{r}
+var = apply( proteome.t , 2 ,var , na.rm = T )
+prot.var = proteome.t[, !(var == 0 | is.na(var))]
+prot.var = as.matrix(prot.var)
+```
+
+```{r}
+h=hist((apply(is.na(prot.var), 2, sum)/nrow(prot.var) ) *100,breaks=10,
+main="QC",
+xlab="percentage of missingness")
+text(h$mids,h$counts,labels=h$counts, adj=c(0.5, -0.5))
+abline(v = 50)
+```
+
+
+```{r}
+keep = apply(is.na(prot.var), 2, sum)/nrow(prot.var) <0.5
+
+```
+
+
+```{r}
+prot.filt=prot.var[,keep]
+dim(trans.var)
+dim(prot.filt)
+prot.imputed = impute.knn(prot.filt,k=10)$data
+dim(prot.imputed)
+
+sum(is.na(prot.imputed))
+prot.scaled = scale(prot.imputed, scale = T)
+sum(is.na(prot.scaled))
+```
+
+
+```{r}
+par(mfrow=c(1,3))
+plot(density(apply(prot.imputed, 2, mean, na.rm = TRUE)),main='befor scaling')
+plot(density(apply(prot.scaled, 2, mean, na.rm = TRUE)),main='after  scaling')
+```
+
+
+```{r}
+par(mar = c(8,5,2,2),mfrow=c(1,3))
+boxplot(t(prot.imputed[1:20,]), main="Before scaling" ,horizontal=T,las=2,col = "blue")
+boxplot(t(prot.scaled[1:20,]), main="After scaling " ,horizontal=T,las=2,col = "orange")
+
+
+```
+
+
+```{r}
+meth.t = setNames(data.frame(t(methylation[,-1])), methylation[,1])
+```
+
+
+```{r}
+var = apply( meth.t , 2 ,var , na.rm = T )
+meth.var = meth.t[, !(var == 0 | is.na(var))]
+meth.var = as.matrix(meth.var)
+```
+
+```{r}
+h=hist((apply(is.na(meth.var), 2, sum)/nrow(meth.var) ) *100,breaks=10,
+main="QC",
+xlab="percentage of missingness")
+text(h$mids,h$counts,labels=h$counts, adj=c(0.5, -0.5))
+abline(v = 70)
+```
+
+
+```{r}
+keep = apply(is.na(meth.var), 2, sum)/nrow(meth.var) <0.7
+
+```
+
+
+```{r}
+
+meth.filt=meth.var[,keep]
+dim(meth.var)
+dim(trans.filt)
+meth.imputed = impute.knn(meth.filt,k=10)$data
+dim(meth.imputed)
+
+sum(is.na(meth.imputed))
+meth.logged = log2(meth.imputed + 1)
+meth.scaled = scale(meth.logged, scale = T)
+sum(is.na(meth.scaled))
+```
+
+
+
+
+```{r}
+par(mfrow=c(1,3))
+plot(density(apply(meth.imputed, 2, mean, na.rm = TRUE)),main='befor log2')
+plot(density(apply(meth.logged, 2, mean, na.rm = TRUE)),main='after log2')
+plot(density(apply(meth.scaled, 2, mean, na.rm = TRUE)),main='after  scaling')
+```
+
+
+```{r}
+par(mar = c(8,5,2,2),mfrow=c(1,3))
+boxplot(t(meth.imputed[1:20,]), main="Before log2" ,horizontal=T,las=2,col = "blue")
+boxplot(t(meth.logged[1:20,]), main="After log2" ,horizontal=T,las=2,col = "blue")
+boxplot(t(meth.scaled[1:20,]), main="After scaling " ,horizontal=T,las=2,col = "orange")
+
+```
+
+
+```{r}
+dim(meth.scaled)
+dim(prot.scaled)
+dim(trans.scaled)
+```
+
+
+```{r}
+methylation.matrix = t(meth.scaled)
+protien.matrix = t(prot.scaled)
+rna.matrix = t(trans.scaled)
+
+```
+
+```{r}
+clinical.n = clinical.n%>%
+  mutate(condition = "normal")
+
+clinical.t =clinical.t%>%
+  mutate(condition = "tumor")
+```
+
+
+```{r}
+meta = rbind(clinical.n , clinical.t)
+```
+
+
+```{r}
+#write.csv(methylation.matrix , "COMP_BIO/moda/meth")
+#write.csv(protien.matrix , "COMP_BIO/moda/prot")
+#write.csv(rna.matrix , "COMP_BIO/moda/rna")
+#write.csv(meta , "meta")
+
+
+```
+
+
+```{r}
+library(corrplot)
+library(RColorBrewer)
+M = cor(trans.scaled[,20:40])
+corrplot(M, type="upper", order="hclust" )
+
+```
+```{r}
+rownames(trans.scaled) = trans.scaled[ ,1]
+```
+
+
+
+```{r}
+i_col = intersect(rownames(meta), rownames(trans.scaled))
+
+```
+
+
+```{r}
+trans.scaled  = trans.scaled [  i_col ,]
+meta = meta[ i_col , ]
+
+```
+
+```{r}
+
+```
+
+
+
+```{r}
+df_pca = prcomp(trans.scaled)
+df_out = as.data.frame(df_pca$x)
+ggplot(df_out,aes(x=PC1 ,y=PC2 ,color = clinical$condition, shape=clinical$condition))+
+geom_point()+ggtitle("")+labs(color='')
+```
+
+
+
+```{r}
+kmeans2 = kmeans(rna.matrix , centers = 2, nstart = 25)
+kmeans3 = kmeans(rna.matrix , centers = 3, nstart = 25)  
+kmeans4 = kmeans(rna.matrix , centers = 4, nstart = 25)  
+kmeans5 = kmeans(rna.matrix , centers = 5, nstart = 25)  
+ #Comparing the Plots
+plot1 = fviz_cluster(kmeans2, geom = "point", data = data.scaled) + ggtitle("k = 2")
+plot2 = fviz_cluster(kmeans3, geom = "point", data = data.scaled) + ggtitle("k = 3")
+plot3 = fviz_cluster(kmeans4, geom = "point", data = data.scaled) + ggtitle("k = 4")
+plot4 = fviz_cluster(kmeans5, geom = "point", data = data.scaled) + ggtitle("k = 5")
+grid.arrange(plot1, plot2, plot3, plot4, nrow = 2)
+
+```
+
+
+```{r}
+plot(kmeans2, data=data.scaled)
+```
+
+
+```{r}
+table(clinical$condition, kmeans2$cluster)
+
+```
+
+
+```{r}
+fviz_nbclust(data.scaled, kmeans, method = "silhouette")
+
+```
+
+
+```{r}
+fviz_nbclust(data.scaled, kmeans, method = "wss")
+
+```
+
+
+```{r}
+options(repr.plot.width = 50, repr.plot.height = 10)
+
+d   = dist(data.scaled, method = "euclidean") 
+fit = hclust(d, method="ward.D" )
+plot(fit , hang = -10) 
+groups = cutree(fit, k=2) 
+rect.hclust(fit, k=2, border="green" )
+```
+
+
+```{r}
+library(limma)
+type   = as.character(clinical$condition)
+
+design = model.matrix(~0+factor(type))
+
+colnames(design) = levels(factor(type))
+
+
+
+contrast = makeContrasts( tumor - normal,levels=design)
+fit      = lmFit(as.matrix(t(data.scaled)), design)
+fit2     = contrasts.fit(fit, contrast)
+fit2     = eBayes(fit2)
+
+```
+
+
+```{r}
+res = topTable(fit2, adjust.method='fdr', number=99999999 , p.value = .05 , coef = 1)
+dim(res)
+head(res)
+```
+
+
+```{r}
+res$diffexpressed = "NO"
+res$diffexpressed[res$logFC > 0 & res$P.Value < 0.05] = "UP"
+res$diffexpressed[res$logFC < -0.6 & res$P.Value < 0.05] = "DOWN"
+     
+```
+
+```{r}
+des_reg = res %>% filter( P.Value < 0.05 ) %>% arrange (desc = F) %>% rownames %>% head(100)
+```
+
+
+
+```{r}
+library(EnhancedVolcano)
+EnhancedVolcano(res,
+    lab = rownames(res),
+    x = 'logFC',
+    y = 'adj.P.Val',
+    title = 'cancer versus healthy',
+    pCutoff = 10e-32,
+    FCcutoff =1,
+    pointSize = 3.0,
+    labSize = 2.0)
+```
+```{r}
+top_table = data.scaled[ , des_reg]
+```
+
+
+```{r}
+set.seed(000)
+mycolors= rep("navy",dim(matched.clinical)[1])
+mycolors[which(matched.clinical=="tumor")]="purple"
+
+column_ha = HeatmapAnnotation(Sample_type= clinical$condition)
+Heatmap(t(top_table), name = "top", top_annotation = column_ha)
+Heatmap(t(top_table), name = "top", top_annotation = column_ha, row_names_gp = gpar(fontsize = 1), column_names_gp = gpar(fontsize = .5, mycolors))
+```
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+

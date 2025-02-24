@@ -1,0 +1,979 @@
+---
+title: "mofa on lung cancer"
+author: "sara yusuf"
+date: "2024-03-01"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+# libraries loading
+
+
+```{r}
+library(htmltools)
+library(BiocManager)
+library(basilisk)
+library(magrittr)
+library(ggplot2)
+library(ggrepel)
+library(tidyverse)
+library(vegan)
+library(data.table)
+library(MOFA2)
+library(tibble)
+
+
+
+```
+ #reading the rna, protein ,mirna and methylation matrices that were already processed plus the metadata matrix.
+
+```{r}
+# rna = read.csv("c:/Users/saraa/Desktop/COMP_BIO/moda/mofa on lung ca/rna" ,row.names = 1, header = T )
+# meth = read.csv("c:/Users/saraa/Desktop/COMP_BIO/moda/mofa on lung ca/meth",row.names = 1, header = T )
+# prot = read.csv("c:/Users/saraa/Desktop/COMP_BIO/moda/mofa on lung ca/prot",row.names = 1, header = T )
+# mirna = read.csv("c:/Users/saraa/Desktop/COMP_BIO/moda/mirna/miRNA.scaled" , row.names = 1 , header = T)
+# meta = read.csv("c:/Users/saraa/Desktop/COMP_BIO/moda/mofa on lung ca/meta",row.names = 1, header = T )
+
+```
+
+#now some exploration and matching to unify the common samples between omics data 
+
+
+
+
+```{r}
+# rna = as.matrix(rna)
+# meth = as.matrix(meth)
+# prot = as.matrix(prot)
+# mirna = as.matrix(mirna)
+
+```
+
+
+
+```{r}
+#i_col = intersect(colnames(mirna), colnames(meth))
+```
+
+
+```{r}
+# rna_x  =  rna  [ , i_col]
+# mirna_x=  mirna[ , i_col]
+# meth_x =  meth [ , i_col]
+# prot_x =  prot [ , i_col]
+# meta_x =  meta [i_col , ]
+```
+
+
+```{r}
+# write.csv( rna_x , "rna_matched")
+# write.csv( mirna_x , "mirna_matched")
+# write.csv( prot_x , "prot_matched")
+# write.csv( meth_x , "meth_matched")
+# write.csv( meta_x , "meta_matched")
+
+
+```
+
+
+```{r}
+rna = read.csv("C:/Users/saraa/Desktop/rna_matched" , header = T , row.names = 1)
+mirna = read.csv("C:/Users/saraa/Desktop/mirna_matched", header = T , row.names = 1)
+prot = read.csv("C:/Users/saraa/Desktop/prot_matched", header = T , row.names = 1)
+meth = read.csv("C:/Users/saraa/Desktop/meth_matched", header = T , row.names = 1)
+meta = read.csv("C:/Users/saraa/Desktop/meta_matched", header = T , row.names = 1)
+
+```
+
+
+```{r}
+dim(rna)
+dim(meth)
+dim(prot)
+dim(mirna)
+
+```
+
+```{r}
+all(colnames(rna) == colnames(meth))
+all(colnames(rna) == colnames(prot))
+all(colnames(mirna) == colnames(prot))
+all(colnames(rna) == rownames(meta))
+
+```
+#we need to compile all data into a list of matrices 
+
+```{r}
+data = list(rna = rna , meth = meth , prot = prot , mirna = mirna)
+``` 
+
+```{r}
+lapply(data,dim)
+```
+#moving to preparing the MOFA object to fit the model
+
+```{r}
+
+#MOFAobject = create_mofa(data)
+
+
+
+#plot_data_overview(MOFAobject)
+
+
+#data_opts = get_default_data_options(MOFAobject)
+#data_opts
+
+#model_opts = get_default_model_options(MOFAobject)
+#model_opts$num_factors = 10
+
+#model_opts
+
+
+#train_opts = get_default_training_options(MOFAobject )
+#train_opts$convergence_mode = "slow"
+
+#train_opts
+##MOFAobject = prepare_mofa(
+#  object = MOFAobject,
+#  data_options = data_opts,
+#  model_options = model_opts,
+#  training_options = train_opts
+```
+
+
+```{r}
+#outfile = file.path(getwd(),"model.hdf5")
+#MOFAobject.trained = run_mofa(MOFAobject, outfile , use_basilisk = T)
+```
+
+```{r}
+MOFAobject.trained = load_model("C:/Users/saraa/Desktop/COMP_BIO/moda/mofa on lung ca/model1.hdf5")
+```
+
+
+
+
+#after fitting the model ... some exploration and visualization
+
+```{r}
+names(MOFAobject.trained@data)
+
+```
+
+
+```{r}
+dim(MOFAobject.trained@data$rna$group1)
+
+```
+
+
+```{r}
+names(MOFAobject.trained@expectations)
+
+```
+
+
+```{r}
+dim(MOFAobject.trained@expectations$W$rna)
+```
+# we need to familiarize our model with the metadata in order to start comparison 
+
+
+```{r}
+meta = meta%>%
+  rownames_to_column("sample")
+```
+
+```{r}
+
+ stopifnot(all(sort(meta$sample) == sort(unlist(samples_names(MOFAobject.trained)))))
+```
+
+
+```{r}
+samples_metadata(MOFAobject.trained) = meta
+
+```
+
+```{r}
+head(MOFAobject.trained@cache$variance_explained$r2_total[[1]]) # group 1
+
+```
+
+
+```{r}
+head(MOFAobject.trained@cache$variance_explained$r2_per_factor[[1]]) # group 1
+
+```
+
+
+
+```{r}
+plot_factor_cor(MOFAobject.trained)
+
+```
+# by looking at the thiis graph we can tell that there is some corelation among features 
+
+```{r}
+plot_variance_explained(MOFAobject.trained, max_r2=15)
+
+```
+this is the the total variance between our omics ,  we can tell that "factor 1" explains the most of variation and the rna data is the one that differentiate my samples the most..
+
+```{r}
+plot_variance_explained(MOFAobject.trained, plot_total = T)[[2]]
+
+```
+here again another proof the the RNA data explaine the most variation among the samples
+
+```{r}
+plot_factor(MOFAobject.trained, 
+  factor = 1:3,
+  color_by = "condition",
+)
+```
+this graph is to capture the influence of the condition  among samples from the first three factors point of wiew , as  we can see it is obvious that factor1 can clearly separate samples into two distinct groups by condition (NORMAL VS TUMOR).
+by looking at factor 2 and 3 it becomes less distinct.
+
+```{r}
+p = plot_factor(MOFAobject.trained, 
+  factors = c(1,2,3),
+  color_by = "condition",
+  dot_size = 3,        
+  dodge = T,          
+  legend = F,          
+  add_violin = T,      
+  violin_alpha = 0.25  
+)
+
+p = p + 
+  scale_color_manual(values=c("A"="black", "B"="red")) +
+  scale_fill_manual(values=c("A"="black", "B"="red"))
+
+print(p)
+```
+
+
+```{r}
+plot_weights(MOFAobject.trained,
+ view = "rna",
+ factor = 1,
+ nfeatures = 10,     # Top number of features to highlight
+ scale = T           # Scale weights from -1 to 1
+)
+```
+the graph aims to plot RNA features that have to heaviest weights to influence variance , all those genes are considered the most important of all.
+the same is applied to the rest of omics data and some features stood out.
+
+```{r}
+plot_weights(MOFAobject.trained,
+ view = "meth",
+ factor = 1,
+ nfeatures = 10,     # Top number of features to highlight
+ scale = T           # Scale weights from -1 to 1
+)
+```
+
+
+```{r}
+plot_top_weights(MOFAobject.trained,
+ view = "rna",
+ factor = 1,
+ nfeatures = 10,     # Top number of features to highlight
+ scale = T   
+ )
+```
+
+
+```{r}
+plot_top_weights(MOFAobject.trained,
+ view = "prot",
+ factor = 1,
+ nfeatures = 10,     # Top number of features to highlight
+ scale = T           # Scale weights from -1 to 1
+)
+```
+
+
+we took as example (NTM) and (CD40) , one of the genes that showed a high wt on varianation , we specified the search to be only on factor 1 since it explains variancse the most , and a clear cut line appeared between samples to emphasize again that these feature's role cannot be ignored in the process of lung cancer incidence 
+
+```{r}
+plot_factor(MOFAobject.trained, 
+  factors = 1, 
+  color_by = "NTM_rna",
+  dodge = TRUE,
+  add_violin = TRUE)
+
+```
+
+
+```{r}
+plot_factor(MOFAobject.trained, 
+  factors = 1, 
+  color_by = "CD40_rna",
+  dodge = TRUE,
+  add_violin = TRUE)
+```
+upon plotting the gender influence on the tumor formation , it had no clear association . the tumor was almost equally happening to both genders.
+
+```{r}
+plot_factor(MOFAobject.trained, 
+  factors = 1, 
+  color_by = "Gender",
+  dodge = TRUE,
+  add_violin = TRUE
+)
+```
+
+
+
+
+
+
+
+```{r}
+plot_data_heatmap(MOFAobject.trained, 
+  view = "rna",
+  factor = 1,  
+  features = 25,
+  cluster_rows = FALSE, cluster_cols = FALSE,
+  show_rownames = TRUE, show_colnames = FALSE,
+  scale = "row"
+)
+```
+
+```{r}
+plot_data_heatmap(MOFAobject.trained, 
+  view = "meth",
+  factor = 1,  
+  features = 25,
+  cluster_rows = FALSE, cluster_cols = FALSE,
+  show_rownames = TRUE, show_colnames = FALSE,
+  scale = "row")
+```
+now we zoomed on factor 1 and drew a heatmap to defferentiate the samples deppending on both RNA and methylation data.
+we can conclude that there is a contrast among features.
+some are highly up regulated and others down regulated
+
+
+
+let's perform an enrichment analysis to figure out which pathways are more involved in lung cancer 
+
+
+
+
+
+
+```{r}
+weights = get_weights(MOFAobject.trained, as.data.frame = T) 
+
+head(weights , n=3)
+
+
+```
+
+```{r}
+rna_factors = weights %>% filter(view == "rna" & factor == "Factor1")
+prot_factors = weights %>% filter(view == "prot" & factor == "Factor1")
+meth_factors = weights %>% filter(view == "meth" & factor == "Factor1")
+mirna_factors = weights %>% filter(view == "mirna" & factor == "Factor1")
+
+
+```
+
+
+
+```{r}
+rna_factors[ ,1 ] = sub("_.*", "", rna_factors[ ,1 ] ) 
+prot_factors[ ,1 ] = sub("_.*", "", prot_factors[ ,1 ] )
+meth_factors[ ,1 ] = sub("_.*", "",meth_factors[ ,1 ] )
+
+
+```
+
+
+```{r}
+rna_list = rna_factors$feature
+prot_list = prot_factors$feature
+meth_list = meth_factors$feature
+```
+
+```{r}
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+ #  install.packages("BiocManager")
+
+#BiocManager::install("msigdbr")
+library(msigdbr)
+library(fgsea)
+
+```
+
+
+```{r}
+genesets = msigdbr(species = "Homo sapiens", category = "C2", subcategory = "CP:KEGG")
+
+```
+
+
+
+
+```{r}
+genesets$gene_symbol =toupper(genesets$gene_symbol)
+
+genesets_rna = genesets[genesets$gene_symbol %in% rna_list ,]
+
+
+my_list = genesets %>% split(x = .$gene_symbol, f = .$gs_name)
+rownames(rna_factors) = rna_factors[ , 1]
+rna_factors =rna_factors[ ,-1]
+stats = rna_factors[ ,2]
+names(stats) = rownames(rna_factors)
+eaRes = fgsea(pathways = my_list, stats = stats ,nperm=100)
+
+```
+
+
+
+```{r}
+ooEA = order(eaRes$pval, decreasing = FALSE)
+eaRes=eaRes[ooEA,]
+print(head(eaRes))
+
+```
+
+
+```{r}
+
+topPathwaysUp = eaRes[ES > 0 & pval <.05][head(order(pval), n=10), pathway]
+topPathwaysDown = eaRes[ES < 0& pval <.05][head(order(pval), n=10), pathway]
+topPathways = c(topPathwaysUp, rev(topPathwaysDown))
+plotGseaTable(my_list[topPathways], stats, eaRes, 
+              gseaParam=0.5)
+
+
+```
+
+
+```{r}
+plotEnrichment(my_list[["KEGG_GLYOXYLATE_AND_DICARBOXYLATE_METABOLISM"]],
+               stats) + labs(title="KEGG_GLYOXYLATE_AND_DICARBOXYLATE_METABOLISM")
+```
+
+
+```{r}
+# Select the necessary columns
+gsea_data = eaRes[, c("pathway", "NES", "padj")]
+
+# Convert the FDR q-value to a logarithmic scale
+gsea_data$padj = -log10(gsea_data$padj)
+
+# Create a new column to indicate the direction of enrichment
+gsea_data$direction = ifelse(gsea_data$NES > 0, "Up", "Down")
+```
+
+
+```{r}
+# Create the volcano plot
+ggplot(gsea_data, aes(x = NES, y = padj, color = direction , size = abs(NES) )) + 
+  geom_point() + 
+
+  theme_classic() + 
+  geom_text(aes(label = eaRes$pathway), check_overlap = TRUE, vjust = 3 , size =1.5)+
+  
+  labs(x = "Normalized Enrichment Score (NES)", 
+       y = "-log10(FDR q-value)", 
+       color = "Direction",
+       size = "NES Absolute Value" ) + 
+  scale_color_manual(values = c("Up" = "blue", "Down" = "red")) + 
+  theme(legend.position = "bottom")
+```
+
+
+
+
+```{r}
+# Create a logical vector indicating which rows to combine
+rows_to_combine <- eaRes$pathway %in% topPathways
+
+# Combine the matching rows into a single list
+combined_list <- eaRes$leadingEdge[rows_to_combine]
+
+# Print the combined list
+combined_list
+
+ write.csv( data.frame(combined_list) ,"com" , row.names = F )
+```
+
+
+```{r}
+genes_to_search = unlist(combined_list)
+```
+
+
+```{r}
+rna_filt = rna[genes_to_search , ]
+```
+
+
+
+```{r}
+library(ComplexHeatmap)
+```
+
+
+```{r}
+mycolors= rep("navy",dim(meta)[1])
+mycolors[which(meta=="tumor")]="purple"
+
+column_ha = HeatmapAnnotation(Sample_type= meta$condition)
+Heatmap(rna_filt, name = "top", top_annotation = column_ha)
+Heatmap(rna_filt, name = "top", top_annotation = column_ha, row_names_gp = gpar(fontsize = 2), column_names_gp = gpar(fontsize = 3, mycolors))
+```
+
+
+
+
+
+
+######################################################################
+
+
+now for protiens
+
+
+```{r}
+
+genesets_prot = genesets[genesets$gene_symbol %in% prot_list ,]
+
+
+my_list_prot = genesets_prot %>% split(x = .$gene_symbol, f = .$gs_name)
+
+stats_prot = prot_factors[ ,3]
+names(stats_prot) = prot_factors[ ,1]
+eaRes_prot = fgsea(pathways = my_list_prot, stats = stats_prot ,nperm=100)
+
+```
+
+
+
+```{r}
+ooEA_prot = order(eaRes_prot$pval, decreasing = FALSE)
+eaRes_prot=eaRes_prot[ooEA_prot,]
+print(head(eaRes_prot))
+
+```
+
+
+```{r}
+topPathwaysUp_prot = eaRes_prot[ES > 0][head(order(pval), n=10), pathway]
+topPathwaysDown_prot = eaRes_prot[ES < 0][head(order(pval), n=10), pathway]
+topPathways_prot = c(topPathwaysUp_prot, rev(topPathwaysDown_prot))
+plotGseaTable(my_list_prot[topPathways_prot], stats_prot, eaRes_prot, 
+              gseaParam=0.5)
+
+
+```
+
+
+
+
+```{r}
+# Select the necessary columns
+gsea_data_prot = eaRes_prot[, c("pathway", "NES", "padj")]
+
+# Convert the FDR q-value to a logarithmic scale
+gsea_data_prot$padj = -log10(gsea_data_prot$padj)
+
+# Create a new column to indicate the direction of enrichment
+gsea_data_prot$direction = ifelse(gsea_data_prot$NES > 0, "Up", "Down")
+```
+
+
+```{r}
+# Create the volcano plot
+ggplot(gsea_data_prot, aes(x = NES, y = padj, color = direction , size = abs(NES) )) + 
+  geom_point() + 
+
+  theme_classic() + 
+  geom_text(aes(label = eaRes_prot$pathway), check_overlap = TRUE, vjust = 3 , size =1.5)+
+  
+  labs(x = "Normalized Enrichment Score (NES)", 
+       y = "-log10(FDR q-value)", 
+       color = "Direction",
+       size = "NES Absolute Value" ) + 
+  scale_color_manual(values = c("Up" = "blue", "Down" = "red")) + 
+  theme(legend.position = "bottom")
+```
+
+
+
+
+```{r}
+# Create a logical vector indicating which rows to combine
+rows_to_combine_prot <- eaRes_prot$pathway %in% topPathways_prot
+
+# Combine the matching rows into a single list
+combined_list_prot <- eaRes_prot$leadingEdge[rows_to_combine_prot]
+
+# Print the combined list
+combined_list_prot
+```
+
+
+```{r}
+prot_to_search = unlist(combined_list_prot)
+```
+
+
+
+```{r}
+prot_filt = prot[rownames(prot) %in% prot_to_search, ]
+
+```
+
+
+```{r}
+library(ComplexHeatmap)
+set.seed(123)
+mycolors= rep("navy",dim(meta)[1])
+mycolors[which(meta=="tumor")]="purple"
+
+column_ha = HeatmapAnnotation(Sample_type= meta$condition)
+Heatmap(prot_filt, name = "top", top_annotation = column_ha)
+Heatmap(prot_filt, name = "top", top_annotation = column_ha, row_names_gp = gpar(fontsize = 2), column_names_gp = gpar(fontsize = 3, mycolors))
+```
+########################################################################
+
+pathway analysis for methylation data
+
+
+```{r}
+
+genesets_meth = genesets[genesets$gene_symbol %in% meth_list ,]
+
+
+my_list_meth = genesets_meth %>% split(x = .$gene_symbol, f = .$gs_name)
+
+stats_meth = meth_factors[ ,3]
+names(stats_meth) = meth_factors[,1]
+eaRes_meth = fgsea(pathways = my_list_meth, stats = stats_meth ,nperm=100)
+
+```
+
+
+
+```{r}
+ooEA_meth = order(eaRes_meth$pval, decreasing = FALSE)
+eaRes_meth=eaRes_meth[ooEA_meth,]
+print(head(eaRes_meth))
+
+```
+
+
+```{r}
+topPathwaysUp_meth = eaRes_meth[ES > 0][head(order(pval), n=10), pathway]
+topPathwaysDown_meth = eaRes_meth[ES < 0][head(order(pval), n=10), pathway]
+topPathways_meth = c(topPathwaysUp_meth, rev(topPathwaysDown_meth))
+plotGseaTable(my_list_meth[topPathways_meth], stats_meth, eaRes_meth, 
+              gseaParam=0.5)
+
+
+```
+
+
+
+
+```{r}
+# Select the necessary columns
+gsea_data_meth = eaRes_meth[, c("pathway", "NES", "padj")]
+
+# Convert the FDR q-value to a logarithmic scale
+gsea_data_meth$padj = -log10(gsea_data_meth$padj)
+
+# Create a new column to indicate the direction of enrichment
+gsea_data_meth$direction = ifelse(gsea_data_meth$NES > 0, "Up", "Down")
+```
+
+
+```{r}
+# Create the volcano plot
+ggplot(gsea_data_meth, aes(x = NES, y = padj, color = direction , size = abs(NES) )) + 
+  geom_point() + 
+
+  theme_classic() + 
+  geom_text(aes(label = eaRes_meth$pathway), check_overlap = TRUE, vjust = 3 , size =1.5)+
+  
+  labs(x = "Normalized Enrichment Score (NES)", 
+       y = "-log10(FDR q-value)", 
+       color = "Direction",
+       size = "NES Absolute Value" ) + 
+  scale_color_manual(values = c("Up" = "blue", "Down" = "red")) + 
+  theme(legend.position = "bottom")
+```
+
+
+
+
+```{r}
+# Create a logical vector indicating which rows to combine
+rows_to_combine_meth <- eaRes_meth$pathway %in% topPathways_meth
+
+# Combine the matching rows into a single list
+combined_list_meth <- eaRes_meth$leadingEdge[rows_to_combine_meth]
+
+# Print the combined list
+combined_list_meth
+```
+
+
+```{r}
+meth_to_search = unlist(combined_list_meth)
+```
+
+
+
+```{r}
+meth_filt = meth[rownames(meth) %in% meth_to_search, ]
+
+```
+
+
+```{r}
+set.seed(123)
+mycolors= rep("navy",dim(meta)[1])
+mycolors[which(meta=="tumor")]="purple"
+
+column_ha = HeatmapAnnotation(Sample_type= meta$condition)
+Heatmap(meth_filt, name = "top", top_annotation = column_ha)
+Heatmap(meth_filt, name = "top", top_annotation = column_ha, row_names_gp = gpar(fontsize = 2), column_names_gp = gpar(fontsize = 3, mycolors))
+```
+
+
+
+
+```{r}
+common_down_pathways <- topPathwaysDown[topPathwaysDown %in% topPathwaysDown_prot ]
+
+
+```
+
+
+```{r}
+common_up_pathways1 <- topPathwaysUp[topPathwaysUp %in% topPathwaysUp_prot]
+
+```
+
+
+
+```{r}
+common_up_pathways2 <- topPathwaysUp[topPathwaysUp %in% topPathwaysUp_meth]
+
+```
+
+
+
+
+```{r}
+plotEnrichment(my_list[["KEGG_CALCIUM_SIGNALING_PATHWAY"]],
+              
+               stats) + labs(title="KEGG_CALCIUM_SIGNALING_PATHWAY")
+
+```
+
+
+```{r}
+plotEnrichment(my_list[["KEGG_CALCIUM_SIGNALING_PATHWAY"]],
+              
+               stats_prot) + labs(title="KEGG_CALCIUM_SIGNALING_PATHWAY")
+
+```
+
+```{r}
+plotEnrichment(my_list[["KEGG_CALCIUM_SIGNALING_PATHWAY"]],
+              
+               stats_meth) + labs(title="KEGG_CALCIUM_SIGNALING_PATHWAY")
+
+```
+
+
+####################################
+
+
+```{r}
+eaRes_top_rna = eaRes[   eaRes$pathway %in% topPathways  , ]
+```
+
+
+```{r}
+
+total = sapply(eaRes_top_rna$leadingEdge, length)
+
+```
+
+
+
+```{r}
+eaRes_top_rna$overlap = total
+```
+
+```{r}
+library(dplyr)
+
+eaRes_top_rna <- eaRes_top_rna %>% 
+  mutate(hits = overlap / size)
+```
+
+
+```{r}
+
+eaRes_top_rna %>%
+  arrange(desc(hits)) %>%
+  ggplot(aes(x = pval, y = size, color = NES, size = hits)) + 
+  geom_point() + 
+  geom_text(aes(label = pathway), check_overlap = TRUE, vjust = 1 ,size =2) + 
+  scale_colour_gradient(low = "green", high = "red", name = "NES Score") + 
+  scale_size(range = c(1, 5)) + 
+  labs(x = "pval", y = "size", title = "Top 20 Pathways by Adjusted P-value") + 
+  theme(axis.text.x = element_text(angle =54, hjust = 1, vjust = 0.5, size =8 ))
+```
+
+
+```{r}
+topPathways
+```
+
+```{r}
+up_meth  = eaRes_meth[ES > 0][order(pval) , pathway]
+down_meth = eaRes_meth[ES < 0][order(pval), pathway]
+
+up_rna  = eaRes[ES > 0][order(pval) , pathway]
+down_rna = eaRes[ES < 0][order(pval), pathway]
+
+up_prot  = eaRes_prot[ES > 0][order(pval) , pathway]
+down_prot = eaRes_prot[ES < 0][order(pval), pathway]
+```
+
+```{r}
+common_rna_prot = up_rna[ up_rna %in% up_prot]
+```
+
+```{r}
+common_all_up = up_rna[ up_meth %in% up_prot]
+common_all_down = down_rna [ down_meth %in% down_prot]
+```
+```{r}
+
+# Filtering the data frame based on common pathways that are upregulated
+eaRes_up_common <- eaRes[eaRes$pathway %in% common_all_up, ]
+```
+
+```{r}
+up_genes_down_epi = common_rna_prot[common_rna_prot %in% down_meth ]
+```
+```{r}
+eaRes_up_genes_down_epi = eaRes[eaRes$pathway %in% up_genes_down_epi, ]
+
+```
+```{r}
+
+# Sample Data
+pathways          <- eaRes_up_genes_down_epi$pathway
+enrichment_scores <- eaRes_up_genes_down_epi$NES
+p_values          <- eaRes_up_genes_down_epi$pval
+
+# Data Frame
+df <- data.frame(Pathway = pathways, 
+                 Enrichment_Score = enrichment_scores, 
+                 P_Value = p_values)
+#  Bubble Plot
+ggplot(df, aes(x = Enrichment_Score, y = -log10(P_Value), size = Enrichment_Score, color = P_Value, label = Pathway)) +
+  geom_point(alpha = 0.7) +  # Adjust transparency
+  scale_size_continuous(range = c(3, 10)) +  # Adjust bubble size range
+  scale_color_gradient(low = "blue", high = "red") +  # Gradient color scale
+  geom_text_repel(size = 2.5, box.padding = 0.5, point.padding = 0.5, segment.color = 'grey50') +  # Add labels
+  labs(title = "Pathway Enrichment and Significance",
+       x = "Enrichment Score",
+       y = "-log10(P-Value)",
+       size = "Enrichment Score",
+       color = "P-Value") +
+  theme_minimal() +  # Minimal theme
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+```
+```{r}
+
+plotEnrichment(my_list[["KEGG_RIBOSOME"]],
+              
+               stats_meth) + labs(title="KEGG_RIBOSOME from the methylation data view")
+
+```
+
+
+```{r}
+plotEnrichment(my_list[["KEGG_RIBOSOME"]],
+              
+               stats) + labs(title="KEGG_RIBOSOME from the rna data view")
+```
+
+```{r}
+plotEnrichment(my_list[["KEGG_RIBOSOME"]],
+              
+               stats_prot) + labs(title="KEGG_RIBOSOME from the proteins data view")
+```
+```{r}
+KEGG_RIBOSOME_genes <- eaRes$leadingEdge[eaRes$pathway %in% "KEGG_RIBOSOME"]
+
+
+```
+
+
+
+```{r}
+# Example fgsea results data frame
+fgsea_res <- data.frame(
+  pathway = eaRes_up_genes_down_epi$pathway,
+  NES = eaRes_up_genes_down_epi$NES,  # Normalized Enrichment Score
+  pval = eaRes_up_genes_down_epi$pval  # P-values
+)
+
+
+threshold <- 0.5  # Define a threshold for similarity
+
+# Create a data frame with pathway relationships
+pathway_pairs <- expand.grid(pathway1 = fgsea_res$pathway, pathway2 = fgsea_res$pathway) %>%
+  filter(pathway1 != pathway2) %>%
+  rowwise() %>%
+  mutate(similarity = abs(fgsea_res$NES[which(fgsea_res$pathway == pathway1)] - 
+                          fgsea_res$NES[which(fgsea_res$pathway == pathway2)])) %>%
+  filter(similarity <= threshold) %>%
+  select(pathway1, pathway2, similarity)
+
+# Rename columns for clarity
+colnames(pathway_pairs) <- c("from", "to", "weight")
+
+```
+
+
+
+```{r}
+library(RCy3)
+cytoscapePing()
+
+```
+
+
+
+
+
+```{r}
+sessionInfo()
+
+
+```
+
+
+
+
